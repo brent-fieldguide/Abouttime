@@ -10,7 +10,7 @@ let model = null;
 function getModel() {
   if (!genAI) {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   }
   return model;
 }
@@ -74,7 +74,7 @@ export async function generateImage(prompt) {
   try {
     // Use the Gemini model that supports image generation
     const imageModel = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-flash',
       generationConfig: {
         responseModalities: ['Text', 'Image']
       }
