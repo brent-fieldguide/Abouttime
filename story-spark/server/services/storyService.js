@@ -10,7 +10,7 @@ let model = null;
 function getModel() {
   if (!genAI) {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
   }
   return model;
 }
