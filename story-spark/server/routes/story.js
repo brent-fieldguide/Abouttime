@@ -1,8 +1,25 @@
 import express from 'express';
-import { generateStoryOutline, generateFullStory, generateCharacterDesign } from '../services/storyService.js';
+import { generateStoryOutline, generateFullStory, generateCharacterDesign, generateImage } from '../services/storyService.js';
 import { validateStorySpec, validateOutline, validateFullStory } from '../validation/storyValidator.js';
 
 const router = express.Router();
+
+// Generate a single image using DALL-E 3
+router.post('/generate-image', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Missing image prompt' });
+    }
+
+    const imageBase64 = await generateImage(prompt);
+    res.json({ image: `data:image/png;base64,${imageBase64}` });
+  } catch (error) {
+    console.error('Image generation error:', error);
+    res.status(500).json({ error: 'Failed to generate image' });
+  }
+});
 
 // Generate character design spec for image consistency
 router.post('/character-design', async (req, res) => {

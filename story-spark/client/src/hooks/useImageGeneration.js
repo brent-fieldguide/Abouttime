@@ -1,30 +1,30 @@
 import { useState, useCallback } from 'react';
 
-// Model fallback chain for reliability
-const MODEL_FALLBACK_CHAIN = [
-  { model: 'dall-e-3', quality: 'hd' },
-  { model: 'gpt-image-1', quality: 'high' },
-  { model: 'stabilityai/stable-diffusion-3-medium', steps: 30 },
-  { model: 'black-forest-labs/FLUX.1-schnell' },
-];
+const API_BASE = '/api/story';
 
 export function useImageGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generateImage = useCallback(async (prompt, options = {}) => {
+  const generateImage = useCallback(async (prompt) => {
     setIsGenerating(true);
     setError(null);
 
     try {
-      // Check if puter is available
-      if (typeof puter === 'undefined' || !puter.ai) {
-        throw new Error('Puter.js not loaded. Please refresh the page.');
+      const response = await fetch(`${API_BASE}/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Image generation failed');
       }
 
-      const imageSrc = await generateWithFallback(prompt, options);
+      const { image } = await response.json();
       setIsGenerating(false);
-      return imageSrc;
+      return image;
     } catch (err) {
       console.error('Image generation error:', err);
       setError(err.message || 'Image generation failed');
@@ -34,33 +34,6 @@ export function useImageGeneration() {
   }, []);
 
   return { generateImage, isGenerating, error, setError };
-}
-
-async function generateWithFallback(prompt, options = {}) {
-  // If specific model is requested, try it first
-  if (options.model) {
-    try {
-      const img = await puter.ai.txt2img(prompt, options);
-      return img.src;
-    } catch (err) {
-      console.warn(`Requested model ${options.model} failed:`, err);
-    }
-  }
-
-  // Try fallback chain
-  for (const fallback of MODEL_FALLBACK_CHAIN) {
-    try {
-      const mergedOptions = { ...fallback, ...options };
-      delete mergedOptions.model; // Remove to use fallback model
-      const img = await puter.ai.txt2img(prompt, { ...fallback });
-      return img.src;
-    } catch (err) {
-      console.warn(`Model ${fallback.model} failed, trying next...`, err);
-      continue;
-    }
-  }
-
-  throw new Error('All image generation models unavailable. Please try again.');
 }
 
 // Hook for generating multiple images sequentially
@@ -91,19 +64,28 @@ export function useStoryImageGeneration() {
           characterDesign
         );
 
-        const modelConfig = getModelConfig(storySpec.artStyle);
         let imageSrc = null;
         let attempts = 0;
         const maxAttempts = 3;
 
         while (!imageSrc && attempts < maxAttempts) {
           try {
-            imageSrc = await generateWithFallback(finalPrompt, modelConfig);
+            const response = await fetch(`${API_BASE}/generate-image`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: finalPrompt }),
+            });
+
+            if (!response.ok) {
+              throw new Error('Image generation failed');
+            }
+
+            const { image } = await response.json();
+            imageSrc = image;
           } catch (err) {
             attempts++;
             console.warn(`Page ${page.pageNumber} attempt ${attempts} failed:`, err);
             if (attempts >= maxAttempts) {
-              // Use placeholder for failed images
               imageSrc = null;
             }
           }
@@ -116,9 +98,9 @@ export function useStoryImageGeneration() {
           failed: !imageSrc,
         });
 
-        // Small delay between generations
+        // Small delay between generations to avoid rate limits
         if (i < pages.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
 
@@ -143,11 +125,20 @@ export function useStoryImageGeneration() {
       storySpec,
       characterDesign
     );
-    const modelConfig = getModelConfig(storySpec.artStyle);
 
     try {
-      const imageSrc = await generateWithFallback(finalPrompt, modelConfig);
-      return { ...page, imageSrc, failed: false };
+      const response = await fetch(`${API_BASE}/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: finalPrompt }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Image regeneration failed');
+      }
+
+      const { image } = await response.json();
+      return { ...page, imageSrc: image, failed: false };
     } catch (err) {
       console.error('Image regeneration failed:', err);
       throw err;
@@ -193,56 +184,23 @@ function buildFinalImagePrompt(rawPrompt, storySpec, characterDesign) {
 
   const parts = [
     rawPrompt,
-    `[STYLE: ${styleDirectives[storySpec.artStyle] || styleDirectives.storybook}]`,
-    `[COLORS: ${colorDirectives[storySpec.colorPalette] || colorDirectives.bright}]`,
+    `Style: ${styleDirectives[storySpec.artStyle] || styleDirectives.storybook}`,
+    `Colors: ${colorDirectives[storySpec.colorPalette] || colorDirectives.bright}`,
   ];
 
   if (characterDesign) {
-    parts.push(`[CHARACTER: ${characterDesign}]`);
+    parts.push(`Character appearance: ${characterDesign}`);
   }
 
   parts.push(
-    "[COMPOSITION: children's book illustration, landscape format, clear focal point, appealing to young children]",
-    'No text, no words, no letters, no watermarks, no scary imagery, no realistic human faces — keep everything stylized and child-friendly.'
+    "Children's book illustration, landscape format, clear focal point, appealing to young children.",
+    'No text, no words, no letters, no watermarks, no scary imagery — keep everything stylized and child-friendly.'
   );
 
   return parts.join('\n');
 }
 
-// Get model configuration based on art style
-function getModelConfig(artStyle) {
-  // Stable Diffusion gives more control for consistent style
-  if (['watercolor', 'pencil', 'storybook'].includes(artStyle)) {
-    return {
-      model: 'stabilityai/stable-diffusion-3-medium',
-      width: 1024,
-      height: 768,
-      steps: 30,
-      negative_prompt:
-        'scary, dark, violent, text, watermark, blurry, low quality, distorted, realistic human faces, extra limbs, bad anatomy',
-    };
-  }
-
-  // DALL-E 3 excels at cartoon and collage styles
-  if (['cartoon', 'collage'].includes(artStyle)) {
-    return {
-      model: 'dall-e-3',
-      quality: 'hd',
-    };
-  }
-
-  // Pixel art works well with Flux
-  if (artStyle === 'pixel') {
-    return {
-      model: 'black-forest-labs/FLUX.1-schnell',
-    };
-  }
-
-  // Default
-  return { model: 'dall-e-3', quality: 'hd' };
-}
-
-// Generate a consistent seed from character name
+// Generate a consistent seed from character name (for future use)
 export function getCharacterSeed(characterName) {
   let hash = 0;
   for (let i = 0; i < characterName.length; i++) {
