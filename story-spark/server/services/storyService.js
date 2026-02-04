@@ -10,7 +10,7 @@ let model = null;
 function getModel() {
   if (!genAI) {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
   }
   return model;
 }
@@ -19,7 +19,7 @@ function getImageModel() {
   if (!genAI) {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   }
-  return genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp-image-generation' });
+  return genAI.getGenerativeModel({ model: 'imagen-3.0-generate-002' });
 }
 
 export async function generateCharacterDesign(storySpec) {
@@ -67,22 +67,20 @@ export async function generateFullStory(storySpec, outline, feedback = null) {
   }
 }
 
-// Generate image using Gemini Imagen
+// Generate image using Gemini with Imagen
 export async function generateImage(prompt) {
-  const imageModel = getImageModel();
-
-  const imagePrompt = `Generate a children's book illustration: ${prompt}
-
-Important: Create a colorful, friendly, child-appropriate illustration. No text, words, or letters in the image.`;
+  const imagePrompt = `Children's book illustration: ${prompt}. Colorful, friendly, child-appropriate, no text or words in the image.`;
 
   try {
-    const result = await imageModel.generateContent({
-      contents: [{ role: 'user', parts: [{ text: imagePrompt }] }],
+    // Use the Gemini model that supports image generation
+    const imageModel = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        responseModalities: ['image', 'text'],
-      },
+        responseModalities: ['Text', 'Image']
+      }
     });
 
+    const result = await imageModel.generateContent(imagePrompt);
     const response = await result.response;
 
     // Find image part in response
