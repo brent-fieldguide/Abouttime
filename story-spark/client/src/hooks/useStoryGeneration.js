@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
-
-const API_BASE = '/api/story';
+import { getOutlinePrompt } from '../prompts/outlinePrompt';
+import { getFullTextPrompt } from '../prompts/fullTextPrompt';
+import { getCharacterDesignPrompt } from '../prompts/characterDesignPrompt';
 
 export function useStoryGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -13,86 +14,49 @@ export function useStoryGeneration() {
     setProgress({ step: 'Preparing your story...', current: 0, total: 3 });
 
     try {
-      // Step 1: Generate character design
-      setProgress({ step: 'Designing your character...', current: 1, total: 3 });
-      const characterDesignRes = await fetch(`${API_BASE}/character-design`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storySpec }),
-      });
-
-      if (!characterDesignRes.ok) {
-        const err = await characterDesignRes.json();
-        throw new Error(err.error || 'Failed to design character');
+      // Check if puter is available
+      if (typeof puter === 'undefined' || !puter.ai) {
+        throw new Error('Puter.js not loaded. Please refresh the page.');
       }
 
-      const { characterDesign } = await characterDesignRes.json();
+      // Step 1: Generate character design
+      setProgress({ step: 'Designing your character...', current: 1, total: 3 });
+      const characterDesignPrompt = getCharacterDesignPrompt(storySpec);
+      const characterDesignResponse = await puter.ai.chat(characterDesignPrompt);
+      const characterDesign = characterDesignResponse.toString().trim();
 
       // Step 2: Generate story outline
       setProgress({ step: 'Writing your story outline...', current: 2, total: 3 });
-      const outlineRes = await fetch(`${API_BASE}/outline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storySpec }),
-      });
+      const outlinePrompt = getOutlinePrompt(storySpec);
+      const outlineResponse = await puter.ai.chat(outlinePrompt);
+      const outlineText = outlineResponse.toString();
 
-      if (!outlineRes.ok) {
-        const err = await outlineRes.json();
-        throw new Error(err.error || 'Failed to create story outline');
+      // Extract JSON from the response
+      const outlineMatch = outlineText.match(/\{[\s\S]*\}/);
+      if (!outlineMatch) {
+        throw new Error('Failed to parse story outline');
       }
-
-      const { outline } = await outlineRes.json();
+      const outline = JSON.parse(outlineMatch[0]);
 
       // Step 3: Generate full story text
       setProgress({ step: 'Writing the full story...', current: 3, total: 3 });
-      const fullTextRes = await fetch(`${API_BASE}/full-text`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storySpec, outline }),
-      });
+      const fullTextPrompt = getFullTextPrompt(storySpec, outline);
+      const fullTextResponse = await puter.ai.chat(fullTextPrompt);
+      const fullText = fullTextResponse.toString();
 
-      if (!fullTextRes.ok) {
-        const err = await fullTextRes.json();
-        throw new Error(err.error || 'Failed to write story');
+      // Extract JSON from the response
+      const storyMatch = fullText.match(/\{[\s\S]*\}/);
+      if (!storyMatch) {
+        throw new Error('Failed to parse story');
       }
-
-      const { story, warnings } = await fullTextRes.json();
+      const story = JSON.parse(storyMatch[0]);
 
       setIsGenerating(false);
       return {
         characterDesign,
         story,
-        warnings: warnings || [],
+        warnings: [],
       };
-    } catch (err) {
-      console.error('Story generation error:', err);
-      setError(err.message || 'Something went wrong creating your story');
-      setIsGenerating(false);
-      return null;
-    }
-  }, []);
-
-  // Combined generation endpoint (all in one request)
-  const generateStoryCombined = useCallback(async (storySpec) => {
-    setIsGenerating(true);
-    setError(null);
-    setProgress({ step: 'Creating your magical story...', current: 1, total: 1 });
-
-    try {
-      const res = await fetch(`${API_BASE}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storySpec }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to generate story');
-      }
-
-      const result = await res.json();
-      setIsGenerating(false);
-      return result;
     } catch (err) {
       console.error('Story generation error:', err);
       setError(err.message || 'Something went wrong creating your story');
@@ -103,7 +67,6 @@ export function useStoryGeneration() {
 
   return {
     generateStory,
-    generateStoryCombined,
     isGenerating,
     progress,
     error,

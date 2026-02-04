@@ -1,30 +1,29 @@
 import { useState, useCallback } from 'react';
 
-const API_BASE = '/api/story';
+// Model fallback chain for reliability
+const MODEL_FALLBACK_CHAIN = [
+  { model: 'dall-e-3', quality: 'hd' },
+  { model: 'stabilityai/stable-diffusion-3-medium', steps: 30 },
+  { model: 'black-forest-labs/FLUX.1-schnell' },
+];
 
 export function useImageGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generateImage = useCallback(async (prompt) => {
+  const generateImage = useCallback(async (prompt, options = {}) => {
     setIsGenerating(true);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/generate-image`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Image generation failed');
+      // Check if puter is available
+      if (typeof puter === 'undefined' || !puter.ai) {
+        throw new Error('Puter.js not loaded. Please refresh the page.');
       }
 
-      const { image } = await response.json();
+      const imageSrc = await generateWithFallback(prompt, options);
       setIsGenerating(false);
-      return image;
+      return imageSrc;
     } catch (err) {
       console.error('Image generation error:', err);
       setError(err.message || 'Image generation failed');
@@ -34,6 +33,22 @@ export function useImageGeneration() {
   }, []);
 
   return { generateImage, isGenerating, error, setError };
+}
+
+async function generateWithFallback(prompt, options = {}) {
+  // Try fallback chain
+  for (const fallback of MODEL_FALLBACK_CHAIN) {
+    try {
+      const mergedOptions = { ...fallback, ...options };
+      const img = await puter.ai.txt2img(prompt, mergedOptions);
+      return img.src;
+    } catch (err) {
+      console.warn(`Model ${fallback.model} failed, trying next...`, err);
+      continue;
+    }
+  }
+
+  throw new Error('All image generation models unavailable. Please try again.');
 }
 
 // Hook for generating multiple images sequentially
@@ -50,6 +65,11 @@ export function useStoryImageGeneration() {
     const results = [];
 
     try {
+      // Check if puter is available
+      if (typeof puter === 'undefined' || !puter.ai) {
+        throw new Error('Puter.js not loaded. Please refresh the page.');
+      }
+
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
         setProgress({
@@ -70,22 +90,12 @@ export function useStoryImageGeneration() {
 
         while (!imageSrc && attempts < maxAttempts) {
           try {
-            const response = await fetch(`${API_BASE}/generate-image`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: finalPrompt }),
-            });
-
-            if (!response.ok) {
-              throw new Error('Image generation failed');
-            }
-
-            const { image } = await response.json();
-            imageSrc = image;
+            imageSrc = await generateWithFallback(finalPrompt);
           } catch (err) {
             attempts++;
             console.warn(`Page ${page.pageNumber} attempt ${attempts} failed:`, err);
             if (attempts >= maxAttempts) {
+              // Use placeholder for failed images
               imageSrc = null;
             }
           }
@@ -98,9 +108,9 @@ export function useStoryImageGeneration() {
           failed: !imageSrc,
         });
 
-        // Small delay between generations to avoid rate limits
+        // Small delay between generations to avoid overwhelming the service
         if (i < pages.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
 
@@ -127,18 +137,8 @@ export function useStoryImageGeneration() {
     );
 
     try {
-      const response = await fetch(`${API_BASE}/generate-image`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: finalPrompt }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Image regeneration failed');
-      }
-
-      const { image } = await response.json();
-      return { ...page, imageSrc: image, failed: false };
+      const imageSrc = await generateWithFallback(finalPrompt);
+      return { ...page, imageSrc, failed: false };
     } catch (err) {
       console.error('Image regeneration failed:', err);
       throw err;
